@@ -27,5 +27,7 @@ export default defineConfig({
     // 关闭自动清空 outDir：由 prebuild 脚本统一预创建/清理输出目录，
     // 以兼容部分虚拟化文件系统中异步 mkdir 失败的问题（见 scripts/prebuild.cjs）
     emptyOutDir: false,
+    // 提升 chunk size 警告阈值，避免 Ant Design Pro 等依赖包导致构建警告
+    chunkSizeWarningLimit: 2000,
   },
 });
