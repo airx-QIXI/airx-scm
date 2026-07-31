@@ -1,0 +1,81 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-07-30",
+  "modules": [
+    {
+      "id": "dashboard",
+      "name": "仪表盘",
+      "icon": "DashboardOutlined",
+      "description": "系统概览与关键业务指标",
+      "type": "builtin",
+      "path": "/dashboard",
+      "status": "active",
+      "sortOrder": 0,
+      "version": "1.0.0"
+    },
+    {
+      "id": "production-restock",
+      "name": "排产补货预测",
+      "icon": "LineChartOutlined",
+      "description": "原项目 inventory-dashboard 页面原样嵌入，确保系统中展示与原项目完全一致",
+      "type": "external",
+      "entryUrl": "http://localhost:5180/",
+      "apiBaseUrl": "",
+      "status": "active",
+      "sortOrder": 1,
+      "version": "1.0.0",
+      "dataSource": {
+        "type": "json-sync",
+        "apiEndpoint": "/api/integrations/production-planning/dashboards"
+      }
+    },
+    {
+      "id": "inventory",
+      "name": "库存管理",
+      "icon": "InboxOutlined",
+      "description": "库存查询、库存调拨、库存预警",
+      "type": "external",
+      "entryUrl": "",
+      "apiBaseUrl": "",
+      "status": "pending",
+      "sortOrder": 2,
+      "version": "0.0.0"
+    },
+    {
+      "id": "orders",
+      "name": "订单+物流",
+      "icon": "ShoppingCartOutlined",
+      "description": "订单管理、物流跟踪、发货确认",
+      "type": "external",
+      "entryUrl": "",
+      "apiBaseUrl": "",
+      "status": "pending",
+      "sortOrder": 3,
+      "version": "0.0.0"
+    },
+    {
+      "id": "suppliers",
+      "name": "供应商采购",
+      "icon": "TeamOutlined",
+      "description": "供应商管理、采购订单、对账",
+      "type": "external",
+      "entryUrl": "",
+      "apiBaseUrl": "",
+      "status": "pending",
+      "sortOrder": 4,
+      "version": "0.0.0"
+    },
+    {
+      "id": "analytics",
+      "name": "数据分析报表",
+      "icon": "BarChartOutlined",
+      "description": "销售分析、库存分析、自定义报表",
+      "type": "external",
+      "entryUrl": "",
+      "apiBaseUrl": "",
+      "status": "pending",
+      "sortOrder": 5,
+      "version": "0.0.0"
+    }
+  ]
+}

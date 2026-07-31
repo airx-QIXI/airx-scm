@@ -1,0 +1,74 @@
+// AIRX 供应链管理系统 - Prisma 数据模型定义
+// 开发环境使用 SQLite，部署到阿里云生产环境时切换为 MySQL（见注释配置）
+//
+// 生产环境 MySQL 配置：
+// datasource db {
+//   provider = "mysql"
+//   url      = env("DATABASE_URL")
+// }
+// enum Role { ADMIN MANAGER STAFF }
+// role 字段改为: role Role @default(STAFF)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 用户模型
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  email     String?  @unique
+  fullName  String
+  role      String   @default("STAFF")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 外部项目识别结果
+model IntegrationProject {
+  id          Int                       @id @default(autoincrement())
+  externalId  String                    @unique
+  code        String?
+  sku         String                    @unique
+  name        String
+  brand       String?
+  category    String?
+  modelName   String?
+  source      String                    @default("jd_self_operated")
+  rawData     String
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  snapshots   ProductionRestockSnapshot[]
+}
+
+// 预测看板快照
+model ProductionRestockSnapshot {
+  id                  Int                @id @default(autoincrement())
+  projectId           Int
+  sourceCacheTime     DateTime?
+  availableStock      Float              @default(0)
+  factoryStock        Float              @default(0)
+  inTransitStock      Float              @default(0)
+  sales7Days          Float              @default(0)
+  sales30Days         Float              @default(0)
+  avgDailySales       Float              @default(0)
+  turnoverDays        Float?
+  turnoverRate30Days  Float              @default(0)
+  recommendedRestock  Int                @default(0)
+  riskLevel           String             @default("NORMAL")
+  inventoryTurnover   String
+  inventoryAnalysis   String
+  restockReminder     String
+  rawData             String
+  syncedAt            DateTime           @default(now())
+  project             IntegrationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, syncedAt])
+  @@index([riskLevel])
+}

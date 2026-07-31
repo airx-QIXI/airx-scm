@@ -1,0 +1,108 @@
+/* 登录页整体容器：左侧品牌区 + 右侧表单区 */
+.login-container {
+  display: flex;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1890ff 0%, #001529 100%);
+}
+
+/* 左侧品牌展示区 */
+.login-brand {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: #fff;
+  padding: 40px;
+  text-align: center;
+}
+
+.login-brand .brand-logo {
+  font-size: 64px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  margin-bottom: 16px;
+  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.login-brand .brand-title {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.login-brand .brand-desc {
+  font-size: 16px;
+  opacity: 0.85;
+  max-width: 360px;
+  line-height: 1.8;
+}
+
+.login-brand .brand-features {
+  margin-top: 48px;
+  display: flex;
+  gap: 40px;
+}
+
+.login-brand .brand-feature {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-brand .brand-feature .feature-icon {
+  font-size: 28px;
+  opacity: 0.9;
+}
+
+.login-brand .brand-feature .feature-text {
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+/* 右侧登录表单区 */
+.login-form-wrapper {
+  width: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+
+.login-card {
+  width: 100%;
+  padding: 24px 16px;
+  box-shadow: none;
+  border: none;
+}
+
+.login-card .login-title {
+  text-align: center;
+  margin-bottom: 8px;
+  font-size: 26px;
+  font-weight: 600;
+  color: #001529;
+}
+
+.login-card .login-subtitle {
+  text-align: center;
+  margin-bottom: 32px;
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+.login-form-button {
+  height: 44px;
+  font-size: 16px;
+}
+
+/* 响应式：小屏隐藏品牌区 */
+@media (max-width: 768px) {
+  .login-brand {
+    display: none;
+  }
+  .login-form-wrapper {
+    width: 100%;
+  }
+}

@@ -1,0 +1,39 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+frontend/dist/
+backend/dist/
+
+# 环境变量（包含数据库密码等敏感信息，禁止提交）
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Prisma
+prisma/migrations/
+backend/prisma/dev.db
+backend/prisma/migrations/
+
+# 日志
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel
+
+# 临时文件
+*.tmp
+*.bak
