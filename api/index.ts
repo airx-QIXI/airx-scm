@@ -11,17 +11,16 @@ import { sendSuccess, sendError, handlePreflight } from './_lib/response';
 import { formatModule, modulesHandler } from './_lib/module';
 
 /**
- * 统一 API 入口（catch-all 路由）
- * 所有 /api/* 请求由此单一 Serverless Function 处理
+ * 统一 API 入口
+ * 所有 /api/* 请求通过 vercel.json rewrite 路由到此函数
  * 避免 Hobby 计划 12 个函数限制
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handlePreflight(req.method, res)) return;
 
-  // 通过 Vercel catch-all 路由参数获取路径
-  // [...slug] 会将 /api/auth/login 解析为 slug = ['auth', 'login']
-  const slug = req.query.slug;
-  const pathParts = Array.isArray(slug) ? slug.filter(Boolean) : [];
+  // 从 req.url 解析路径（Vercel rewrite 会保留原始 URL）
+  const rawUrl = req.url || '';
+  const pathParts = rawUrl.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const route = pathParts.join('/');
   const method = req.method || 'GET';
 
