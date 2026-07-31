@@ -18,9 +18,10 @@ import { formatModule, modulesHandler } from './_lib/module';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handlePreflight(req.method, res)) return;
 
-  // 从 req.url 解析路径（Vercel rewrite 会保留原始 URL）
+  // 从 req.url 解析路径（去掉 query string，只取 pathname）
   const rawUrl = req.url || '';
-  const pathParts = rawUrl.replace(/^\/api\/?/, '').split('/').filter(Boolean);
+  const pathname = rawUrl.split('?')[0].split('#')[0];
+  const pathParts = pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const route = pathParts.join('/');
   const method = req.method || 'GET';
 
