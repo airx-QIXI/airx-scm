@@ -144,7 +144,180 @@ async function main() {
     }
   }
 
+  // === 初始化排产补货模拟数据 ===
+  const mockProducts = [
+    { externalId: 'AIRX-A8', code: 'A8-001', sku: 'SKU-A8-001', name: 'AIRX A8 空气净化器', brand: 'AIRX', category: '空气净化器', modelName: 'A8' },
+    { externalId: 'AIRX-A8S', code: 'A8S-002', sku: 'SKU-A8S-002', name: 'AIRX A8S 智能版', brand: 'AIRX', category: '空气净化器', modelName: 'A8S' },
+    { externalId: 'AIRX-A8P', code: 'A8P-003', sku: 'SKU-A8P-003', name: 'AIRX A8P Pro版', brand: 'AIRX', category: '空气净化器', modelName: 'A8P' },
+    { externalId: 'AIRX-A10', code: 'A10-004', sku: 'SKU-A10-004', name: 'AIRX A10 空气净化器', brand: 'AIRX', category: '空气净化器', modelName: 'A10' },
+    { externalId: 'AIRX-A10S', code: 'A10S-005', sku: 'SKU-A10S-005', name: 'AIRX A10S 智能版', brand: 'AIRX', category: '空气净化器', modelName: 'A10S' },
+    { externalId: 'AIRX-A12', code: 'A12-006', sku: 'SKU-A12-006', name: 'AIRX A12 空气净化器', brand: 'AIRX', category: '空气净化器', modelName: 'A12' },
+    { externalId: 'AIRX-A12S', code: 'A12S-007', sku: 'SKU-A12S-007', name: 'AIRX A12S 智能版', brand: 'AIRX', category: '空气净化器', modelName: 'A12S' },
+    { externalId: 'AIRX-A12P', code: 'A12P-008', sku: 'SKU-A12P-008', name: 'AIRX A12P Pro版', brand: 'AIRX', category: '空气净化器', modelName: 'A12P' },
+    { externalId: 'AIRX-A15', code: 'A15-009', sku: 'SKU-A15-009', name: 'AIRX A15 旗舰版', brand: 'AIRX', category: '空气净化器', modelName: 'A15' },
+    { externalId: 'AIRX-A15S', code: 'A15S-010', sku: 'SKU-A15S-010', name: 'AIRX A15S 智能旗舰版', brand: 'AIRX', category: '空气净化器', modelName: 'A15S' },
+    { externalId: 'AIRX-H8', code: 'H8-011', sku: 'SKU-H8-011', name: 'AIRX H8 加湿器', brand: 'AIRX', category: '加湿器', modelName: 'H8' },
+    { externalId: 'AIRX-H8S', code: 'H8S-012', sku: 'SKU-H8S-012', name: 'AIRX H8S 智能加湿器', brand: 'AIRX', category: '加湿器', modelName: 'H8S' },
+  ];
+
+  for (const product of mockProducts) {
+    const existingProject = await prisma.integrationProject.findUnique({
+      where: { externalId: product.externalId },
+    });
+
+    let project;
+    if (existingProject) {
+      project = existingProject;
+    } else {
+      project = await prisma.integrationProject.create({
+        data: {
+          externalId: product.externalId,
+          code: product.code,
+          sku: product.sku,
+          name: product.name,
+          brand: product.brand,
+          category: product.category,
+          modelName: product.modelName,
+          source: 'jd_self_operated',
+          rawData: JSON.stringify(product),
+        },
+      });
+      console.log(`项目已创建: ${project.modelName} (ID: ${project.id})`);
+    }
+
+    // 生成模拟库存和销售数据
+    const availableStock = Math.floor(Math.random() * 4000) + 200;
+    const factoryStock = Math.floor(Math.random() * 2000) + 50;
+    const inTransitStock = Math.floor(Math.random() * 1000);
+    const sales7Days = Math.floor(Math.random() * 400) + 20;
+    const sales30Days = Math.floor(Math.random() * 1800) + 100;
+    const avgDailySales = round(sales30Days / 30, 2);
+    const turnoverDays = avgDailySales > 0 ? round(availableStock / avgDailySales, 1) : null;
+    const turnoverRate30Days = avgDailySales > 0 ? round(sales30Days / ((availableStock + factoryStock + inTransitStock) || 1), 2) : 0;
+
+    let riskLevel: string;
+    if (turnoverDays === null || availableStock === 0) riskLevel = 'OUT_OF_STOCK';
+    else if (turnoverDays < 7) riskLevel = 'CRITICAL';
+    else if (turnoverDays < 14) riskLevel = 'HIGH';
+    else if (turnoverDays > 90) riskLevel = 'OVERSTOCK';
+    else if (sales30Days < 10) riskLevel = 'NONE';
+    else riskLevel = 'NORMAL';
+
+    const riskTextMap: Record<string, string> = {
+      OUT_OF_STOCK: '已缺货',
+      CRITICAL: '高缺货风险',
+      HIGH: '中缺货风险',
+      NORMAL: '正常',
+      OVERSTOCK: '高库存',
+      NONE: '无动销',
+    };
+
+    const recommendedRestock = riskLevel === 'OUT_OF_STOCK' || riskLevel === 'CRITICAL'
+      ? Math.ceil(avgDailySales * 45)
+      : riskLevel === 'HIGH'
+        ? Math.ceil(avgDailySales * 30)
+        : 0;
+
+    const stockCoverageDays = avgDailySales > 0 ? round((availableStock + inTransitStock) / avgDailySales, 1) : null;
+
+    const inventoryTurnover = {
+      project: {
+        externalId: product.externalId,
+        code: product.code,
+        sku: product.sku,
+        name: product.name,
+        brand: product.brand,
+        category: product.category,
+        modelName: product.modelName,
+      },
+      metrics: {
+        availableStock,
+        sales30Days,
+        avgDailySales,
+        turnoverDays,
+        turnoverRate30Days,
+        riskLevel,
+        riskText: riskTextMap[riskLevel] || '数据缺失',
+      },
+    };
+
+    const inventoryAnalysis = {
+      project: {
+        externalId: product.externalId,
+        code: product.code,
+        sku: product.sku,
+        name: product.name,
+        brand: product.brand,
+        category: product.category,
+        modelName: product.modelName,
+      },
+      summary: { availableStock, factoryStock, inTransitStock, sales7Days, sales30Days },
+      warehouses: [
+        { name: '北京仓', availableStock: Math.floor(availableStock * 0.4), inTransitStock: Math.floor(inTransitStock * 0.5), sales30Days: Math.floor(sales30Days * 0.45), projectCount: 1 },
+        { name: '上海仓', availableStock: Math.floor(availableStock * 0.35), inTransitStock: Math.floor(inTransitStock * 0.3), sales30Days: Math.floor(sales30Days * 0.4), projectCount: 1 },
+        { name: '广州仓', availableStock: Math.floor(availableStock * 0.25), inTransitStock: Math.floor(inTransitStock * 0.2), sales30Days: Math.floor(sales30Days * 0.15), projectCount: 1 },
+      ],
+    };
+
+    const priority = riskLevel === 'OUT_OF_STOCK' ? 'P0' : riskLevel === 'CRITICAL' ? 'P1' : riskLevel === 'HIGH' ? 'P2' : 'NONE';
+
+    const restockReminder = {
+      project: {
+        externalId: product.externalId,
+        code: product.code,
+        sku: product.sku,
+        name: product.name,
+        brand: product.brand,
+        category: product.category,
+        modelName: product.modelName,
+      },
+      priority,
+      riskLevel,
+      riskText: riskTextMap[riskLevel] || '数据缺失',
+      recommendedRestock,
+      stockCoverageDays,
+      availableStock,
+      inTransitStock,
+      avgDailySales,
+    };
+
+    // 检查是否已有该项目的最新快照
+    const existingSnapshot = await prisma.productionRestockSnapshot.findFirst({
+      where: { projectId: project.id },
+      orderBy: { syncedAt: 'desc' },
+    });
+
+    if (!existingSnapshot) {
+      await prisma.productionRestockSnapshot.create({
+        data: {
+          projectId: project.id,
+          sourceCacheTime: new Date(),
+          availableStock,
+          factoryStock,
+          inTransitStock,
+          sales7Days,
+          sales30Days,
+          avgDailySales,
+          turnoverDays,
+          turnoverRate30Days,
+          recommendedRestock,
+          riskLevel,
+          inventoryTurnover: JSON.stringify(inventoryTurnover),
+          inventoryAnalysis: JSON.stringify(inventoryAnalysis),
+          restockReminder: JSON.stringify(restockReminder),
+          rawData: JSON.stringify({ inventoryTurnover, inventoryAnalysis, restockReminder }),
+        },
+      });
+      console.log(`快照已创建: ${product.modelName} (库存: ${availableStock}, 风险: ${riskTextMap[riskLevel]})`);
+    }
+  }
+
   console.log('种子数据初始化完成！');
+}
+
+function round(value: number, digits: number): number {
+  const base = 10 ** digits;
+  return Math.round(value * base) / base;
 }
 
 main()
