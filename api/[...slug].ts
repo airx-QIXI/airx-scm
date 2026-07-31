@@ -1,14 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { prisma } from './_lib/prisma';
 import {
-  verifyToken,
   requireAuth,
   signToken,
   comparePassword,
   hashPassword,
   sanitizeUser,
 } from './_lib/auth';
-import { sendSuccess, sendError, handlePreflight, setCorsHeaders } from './_lib/response';
+import { sendSuccess, sendError, handlePreflight } from './_lib/response';
 import { formatModule, modulesHandler } from './_lib/module';
 
 /**
@@ -19,10 +18,10 @@ import { formatModule, modulesHandler } from './_lib/module';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handlePreflight(req.method, res)) return;
 
-  // 获取路径（去掉 /api/ 前缀）
-  const url = new URL(req.url || '', 'http://localhost');
-  const pathParts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
-
+  // 通过 Vercel catch-all 路由参数获取路径
+  // [...slug] 会将 /api/auth/login 解析为 slug = ['auth', 'login']
+  const slug = req.query.slug;
+  const pathParts = Array.isArray(slug) ? slug.filter(Boolean) : [];
   const route = pathParts.join('/');
   const method = req.method || 'GET';
 
