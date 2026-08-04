@@ -89,3 +89,17 @@ model ProductionRestockSnapshot {
   @@index([projectId, syncedAt])
   @@index([riskLevel])
 }
+
+// 工厂排产跟进快照
+model FactoryProductionSnapshot {
+  id            Int      @id @default(autoincrement())
+  snapshotData  String   @db.LongText
+  totalProducts Int      @default(0)
+  totalPlanned  Int      @default(0)
+  totalActual   Int      @default(0)
+  sourceName    String   @default("飞书Wiki电子表格")
+  fetchedAt     DateTime @default(now())
+  syncedAt      DateTime @default(now())
+
+  @@index([syncedAt])
+}

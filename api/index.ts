@@ -428,6 +428,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return sendError(res, '云端部署不支持本地文件同步，请通过数据导入接口或数据库直接写入数据', 400);
     }
 
+    // ========== FACTORY PRODUCTION (工厂排产跟进) ==========
+    if (route === 'integrations/factory-production/dashboard') {
+      if (method !== 'GET') return sendError(res, '仅支持 GET 请求', 405);
+
+      const snapshot = await prisma.factoryProductionSnapshot.findFirst({
+        orderBy: { syncedAt: 'desc' },
+      });
+
+      if (!snapshot) {
+        return sendSuccess(res, {
+          source: 'TiDB Cloud 数据库',
+          syncedAt: new Date(),
+          hasData: false,
+          data: null,
+        });
+      }
+
+      return sendSuccess(res, {
+        source: snapshot.sourceName,
+        syncedAt: snapshot.syncedAt,
+        fetchedAt: snapshot.fetchedAt,
+        hasData: true,
+        data: JSON.parse(snapshot.snapshotData),
+      });
+    }
+
+    if (route === 'integrations/factory-production/sync') {
+      if (method !== 'POST') return sendError(res, '仅支持 POST 请求', 405);
+
+      const { data } = req.body || {};
+      if (!data) return sendError(res, '请提供排产数据 (data 字段)', 400);
+
+      const summary = data.summary || {};
+      const snapshot = await prisma.factoryProductionSnapshot.create({
+        data: {
+          snapshotData: JSON.stringify(data),
+          totalProducts: summary.total_products || 0,
+          totalPlanned: summary.total_planned || 0,
+          totalActual: summary.total_actual || 0,
+          sourceName: (data.meta && data.meta.source) || '手动导入',
+          fetchedAt: data.meta && data.meta.fetched_at ? new Date(data.meta.fetched_at) : new Date(),
+        },
+      });
+
+      return sendSuccess(res, {
+        id: snapshot.id,
+        syncedAt: snapshot.syncedAt,
+        totalProducts: snapshot.totalProducts,
+        totalPlanned: snapshot.totalPlanned,
+        totalActual: snapshot.totalActual,
+      }, 201);
+    }
+
     if (route === 'integrations/production-restock/dashboards') {
       if (method !== 'GET') {
         return sendSuccess(res, { generatedAt: new Date(), projectCount: 0, dashboards: {} }, 405);

@@ -3,6 +3,7 @@ import MainLayout from '@/layouts/MainLayout';
 import Login from '@/pages/login';
 import Dashboard from '@/pages/dashboard';
 import ProductionRestock from '@/pages/production-restock';
+import FactoryProduction from '@/pages/factory-production';
 import ModuleViewer from '@/pages/module-viewer';
 import ProtectedRoute from './ProtectedRoute';
 
@@ -35,6 +36,7 @@ const router = createBrowserRouter([
       // === builtin 模块路由 ===
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'production-restock', element: <ProductionRestock /> },
+      { path: 'factory-production', element: <FactoryProduction /> },
 
       // === external 模块统一路由 ===
       // 通过模块注册表动态展示：iframe 嵌入 或 待开发占位页

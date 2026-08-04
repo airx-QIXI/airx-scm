@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * PlanetScale 种子脚本
@@ -41,13 +43,28 @@ const defaultModules = [
     }),
   },
   {
+    id: 'factory-production',
+    name: '工厂排产跟进',
+    icon: 'BarChartOutlined',
+    description: '工厂排产计划与实际生产跟进看板',
+    type: 'builtin',
+    path: '/factory-production',
+    status: 'active',
+    sortOrder: 2,
+    version: '1.0.0',
+    dataSource: JSON.stringify({
+      type: 'json-sync',
+      apiEndpoint: '/api/integrations/factory-production/dashboard',
+    }),
+  },
+  {
     id: 'inventory',
     name: '库存管理',
     icon: 'InboxOutlined',
     description: '库存查询、库存调拨、库存预警',
     type: 'external',
     status: 'pending',
-    sortOrder: 2,
+    sortOrder: 3,
     version: '0.0.0',
   },
   {
@@ -57,7 +74,7 @@ const defaultModules = [
     description: '订单管理、物流跟踪、发货确认',
     type: 'external',
     status: 'pending',
-    sortOrder: 3,
+    sortOrder: 4,
     version: '0.0.0',
   },
   {
@@ -67,7 +84,7 @@ const defaultModules = [
     description: '供应商管理、采购订单、对账',
     type: 'external',
     status: 'pending',
-    sortOrder: 4,
+    sortOrder: 5,
     version: '0.0.0',
   },
   {
@@ -77,7 +94,7 @@ const defaultModules = [
     description: '销售分析、库存分析、自定义报表',
     type: 'external',
     status: 'pending',
-    sortOrder: 5,
+    sortOrder: 6,
     version: '0.0.0',
   },
 ];
@@ -310,6 +327,42 @@ async function main() {
       });
       console.log(`快照已创建: ${product.modelName} (库存: ${availableStock}, 风险: ${riskTextMap[riskLevel]})`);
     }
+  }
+
+  // === 导入工厂排产跟进数据 ===
+  const factoryDataPath = path.resolve(__dirname, '../../工厂排产跟进/public/data.json');
+  const fallbackPath = 'f:\\TRAE SOLO CN\\6a717be5ded033ac5a159e55\\工厂排产跟进\\public\\data.json';
+  const actualPath = fs.existsSync(factoryDataPath) ? factoryDataPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+
+  if (actualPath) {
+    console.log('正在导入工厂排产跟进数据...');
+    const rawData = fs.readFileSync(actualPath, 'utf-8');
+    const factoryData = JSON.parse(rawData);
+
+    const summary = factoryData.summary || {};
+    const existingFactorySnapshot = await prisma.factoryProductionSnapshot.findFirst({
+      orderBy: { syncedAt: 'desc' },
+    });
+
+    if (!existingFactorySnapshot) {
+      await prisma.factoryProductionSnapshot.create({
+        data: {
+          snapshotData: rawData,
+          totalProducts: summary.total_products || 0,
+          totalPlanned: summary.total_planned || 0,
+          totalActual: summary.total_actual || 0,
+          sourceName: (factoryData.meta && factoryData.meta.source) || '飞书Wiki电子表格',
+          fetchedAt: factoryData.meta && factoryData.meta.fetched_at
+            ? new Date(factoryData.meta.fetched_at.replace(/(\d{4})-(\d{2})-(\d{2})/, '$1-$2-$3'))
+            : new Date(),
+        },
+      });
+      console.log(`工厂排产数据已导入: ${summary.total_products || 0} 个产品, 排产 ${summary.total_planned || 0} 件, 实际 ${summary.total_actual || 0} 件`);
+    } else {
+      console.log('工厂排产数据已存在，跳过导入');
+    }
+  } else {
+    console.log('未找到工厂排产跟进 data.json，跳过数据导入');
   }
 
   console.log('种子数据初始化完成！');
