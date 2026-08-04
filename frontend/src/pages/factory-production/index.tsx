@@ -10,7 +10,6 @@ import {
   Table,
   Tag,
   Typography,
-  message,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -36,22 +35,6 @@ interface FactoryProductionData {
     total_actual: number;
     date_range: { start: string; end: string };
   };
-  category_summary: Array<{
-    category: string;
-    product_count: number;
-    total_planned: number;
-    total_actual: number;
-    completion_rate: number;
-    total_capacity: number;
-  }>;
-  daily_summary: Array<{
-    date: string;
-    month: string;
-    week: string;
-    planned: number;
-    actual: number;
-    completion_rate: number;
-  }>;
   daily_actual: Array<{
     date: string;
     weekday: string;
@@ -145,28 +128,38 @@ const FactoryProduction = () => {
 
   const data = payload?.data;
 
+  const summary = data?.summary || {};
+  const dailyActual = data?.daily_actual || [];
+  const products = data?.products || [];
+  const dateColumns = data?.date_columns || [];
+
   // 月份列表
   const months = useMemo(() => {
-    if (!data?.date_columns) return [];
     const set = new Set<string>();
-    data.date_columns.forEach((d) => set.add(d.month));
+    dateColumns.forEach((d) => set.add(d.month));
     return Array.from(set);
-  }, [data]);
+  }, [dateColumns]);
 
-  // 日期信息映射
+  // 整体完成率
+  const overallRate =
+    summary.total_planned > 0
+      ? (summary.total_actual / summary.total_planned) * 100
+      : 0;
+
+  // 日期 -> { month, week } 映射
   const dateInfoMap = useMemo(() => {
     const map: Record<string, { month: string; week: string }> = {};
-    data?.date_columns?.forEach((d) => {
+    dateColumns.forEach((d) => {
       map[d.date] = { month: d.month, week: d.week };
     });
     return map;
-  }, [data]);
+  }, [dateColumns]);
 
-  // 周日期范围映射
+  // 周次 -> 日期范围映射
   const weekDateRangeMap = useMemo(() => {
     const map: Record<string, { start: string; end: string }> = {};
     const tempMap: Record<string, string[]> = {};
-    data?.date_columns?.forEach((d) => {
+    dateColumns.forEach((d) => {
       const key = `${d.month}-${d.week}`;
       if (!tempMap[key]) tempMap[key] = [];
       tempMap[key].push(d.date);
@@ -176,26 +169,25 @@ const FactoryProduction = () => {
       map[key] = { start: dates[0], end: dates[dates.length - 1] };
     });
     return map;
-  }, [data]);
+  }, [dateColumns]);
 
-  // 每周工作天数
+  // 每周工作天数映射
   const weekWorkingDaysMap = useMemo(() => {
     const map: Record<string, { total: number; working: number }> = {};
-    data?.daily_actual?.forEach((d) => {
+    dailyActual.forEach((d) => {
       const key = `${d.month}-${d.week}`;
       if (!map[key]) map[key] = { total: 0, working: 0 };
       map[key].total++;
       if (!d.is_sunday) map[key].working++;
     });
     return map;
-  }, [data]);
+  }, [dailyActual]);
 
-  // 按周聚合排产计划
+  // 每周排产计划：把产品的 planned_daily 按周聚合
   const weeklyPlan = useMemo(() => {
-    if (!data?.products) return [];
     const weekMap: Record<string, any> = {};
 
-    data.products.forEach((p) => {
+    products.forEach((p) => {
       Object.entries(p.planned_daily || {}).forEach(([date, qty]) => {
         if (typeof qty !== 'number') return;
         const info = dateInfoMap[date];
@@ -247,12 +239,11 @@ const FactoryProduction = () => {
       if (ma !== mb) return ma - mb;
       return (weekOrder[a.week] || 99) - (weekOrder[b.week] || 99);
     });
-  }, [data, dateInfoMap, selectedMonth, weekDateRangeMap, weekWorkingDaysMap]);
+  }, [products, dateInfoMap, selectedMonth, weekDateRangeMap, weekWorkingDaysMap]);
 
   // 按月过滤每日数据
   const filteredDaily = useMemo(() => {
-    if (!data?.daily_actual) return [];
-    let list = [...data.daily_actual].sort((a, b) => sortByDate(a.date, b.date));
+    let list = [...dailyActual].sort((a, b) => sortByDate(a.date, b.date));
     if (selectedMonth !== '全部') {
       list = list.filter((d) => d.month === selectedMonth);
     }
@@ -260,7 +251,7 @@ const FactoryProduction = () => {
       list = list.filter((d) => d.status !== 'idle');
     }
     return list;
-  }, [data, selectedMonth, showIdle]);
+  }, [dailyActual, selectedMonth, showIdle]);
 
   // 按周分组
   const weekGroups = useMemo(() => {
@@ -295,36 +286,80 @@ const FactoryProduction = () => {
     return { total, sundays, productionDays, totalQuantity, avgRate };
   }, [filteredDaily]);
 
-  const overallRate =
-    data && data.summary.total_planned > 0
-      ? (data.summary.total_actual / data.summary.total_planned) * 100
-      : 0;
+  // 参与生产的型号
+  const producedModels = useMemo(() => {
+    const set = new Set<string>();
+    dailyActual.forEach((d) => d.models.forEach((m) => set.add(m.model)));
+    return Array.from(set);
+  }, [dailyActual]);
 
-  // ========== 表格列定义 ==========
+  // ========== 排产计划表列定义（9列，与原项目完全一致） ==========
   const weeklyColumns: TableColumnsType<any> = [
     {
       title: '周次',
       dataIndex: 'weekLabel',
       width: 120,
-      render: (_, record) => (
-        <Text strong>
-          {record.month} {record.week}
-          <br />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {record.dateRange} · 工作日 {record.workingDays} 天
-          </Text>
-        </Text>
-      ),
+      render: (_, record) => {
+        if (record.isWeekRow) {
+          return (
+            <Text strong style={{ fontSize: 13 }}>
+              {record.month} {record.week}
+              <br />
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+                {record.dateRange} · 工作日 {record.workingDays} 天
+              </Text>
+            </Text>
+          );
+        }
+        return <Text type="secondary" style={{ fontSize: 12 }}>{record.weekLabel || ''}</Text>;
+      },
     },
-    { title: '型号', dataIndex: 'model', width: 100, render: (v) => <Text strong>{v}</Text> },
-    { title: '品类', dataIndex: 'category', width: 140, render: (v) => <Text type="secondary">{v}</Text> },
-    { title: '排产数量', dataIndex: 'quantity', width: 100, render: (v) => <Text strong style={{ color: '#4b3fe3' }}>{formatNum(v)} 件</Text> },
-    { title: '日产能', dataIndex: 'capacity', width: 80, render: (v) => <Text type="secondary">{v}</Text> },
-    { title: '需天数', dataIndex: 'daysNeeded', width: 80, render: (v) => <Text type="secondary">{v} 天</Text> },
     {
-      title: '周满产率',
+      title: '型号',
+      dataIndex: 'model',
+      width: 100,
+      render: (v, record) => {
+        if (record.isWeekRow) return <Text strong>合计</Text>;
+        return <Text strong>{v}</Text>;
+      },
+    },
+    {
+      title: '品类',
+      dataIndex: 'category',
+      width: 120,
+      render: (v, record) => {
+        if (record.isWeekRow) return null;
+        return <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>;
+      },
+    },
+    {
+      title: '排产数量',
+      dataIndex: 'quantity',
+      width: 90,
+      render: (v) => <Text strong style={{ color: '#4b3fe3', fontSize: 14 }}>{formatNum(v)} 件</Text>,
+    },
+    {
+      title: '日产能',
+      dataIndex: 'capacity',
+      width: 80,
+      render: (v, record) => {
+        if (record.isWeekRow) return <Text type="secondary">-</Text>;
+        return <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>;
+      },
+    },
+    {
+      title: '需天数',
+      dataIndex: 'daysNeeded',
+      width: 70,
+      render: (v, record) => {
+        if (record.isWeekRow) return <Text type="secondary">-</Text>;
+        return <Text type="secondary" style={{ fontSize: 12 }}>{v} 天</Text>;
+      },
+    },
+    {
+      title: '生产满足率',
       dataIndex: 'fullRate',
-      width: 160,
+      width: 120,
       render: (rate: number, record: any) => {
         if (record.isWeekRow) {
           return (
@@ -333,15 +368,27 @@ const FactoryProduction = () => {
                 percent={Math.min(rate, 100)}
                 size="small"
                 strokeColor={rateColor(rate)}
-                style={{ width: 80 }}
+                style={{ width: 60 }}
                 showInfo={false}
               />
-              <Text strong>{rate}%</Text>
+              <Text strong style={{ fontSize: 13 }}>{rate}%</Text>
             </Space>
           );
         }
         return <Text type="secondary">-</Text>;
       },
+    },
+    {
+      title: '实际生产数量',
+      dataIndex: 'actualQty',
+      width: 100,
+      render: (_, record) => <Text type="secondary">-</Text>,
+    },
+    {
+      title: '排产满足率',
+      dataIndex: 'fulfillRate',
+      width: 100,
+      render: (_, record) => <Text type="secondary">-</Text>,
     },
   ];
 
@@ -357,7 +404,7 @@ const FactoryProduction = () => {
         week: w.week,
         dateRange: w.dateRange,
         workingDays: w.workingDays,
-        model: '合计',
+        model: '',
         quantity: total,
         fullRate: w.fullRate,
         isWeekRow: true,
@@ -365,7 +412,7 @@ const FactoryProduction = () => {
       w.models.forEach((m: any, i: number) => {
         rows.push({
           key: `week-${idx}-model-${i}`,
-          weekLabel: '',
+          weekLabel: i === 0 ? `${w.month} ${w.week}` : '',
           model: m.model,
           category: m.category,
           quantity: m.quantity,
@@ -379,6 +426,7 @@ const FactoryProduction = () => {
     return rows;
   }, [weeklyPlan]);
 
+  // ========== 每日明细表列定义（6列，与原项目一致） ==========
   const dailyColumns: TableColumnsType<any> = [
     { title: '日期', dataIndex: 'date', width: 70, render: (v) => <Text strong>{v}</Text> },
     {
@@ -387,7 +435,7 @@ const FactoryProduction = () => {
       width: 70,
       render: (v, record) => <Text type={record.is_sunday ? 'danger' : undefined}>{v}</Text>,
     },
-    { title: '周次', dataIndex: 'week', width: 80, render: (v) => <Text type="secondary">{v}</Text> },
+    { title: '周次', dataIndex: 'week', width: 80, render: (v) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text> },
     {
       title: '生产型号及数量',
       dataIndex: 'models',
@@ -422,10 +470,10 @@ const FactoryProduction = () => {
                 percent={Math.min(rate, 100)}
                 size="small"
                 strokeColor={rateColor(rate)}
-                style={{ width: 80 }}
+                style={{ width: 100 }}
                 showInfo={false}
               />
-              <Text strong>{rate}%</Text>
+              <Text strong style={{ fontSize: 13 }}>{rate}%</Text>
             </Space>
           );
         }
@@ -435,7 +483,7 @@ const FactoryProduction = () => {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 90,
+      width: 80,
       render: (status: string) => {
         if (status === 'rest') return <Tag color="orange">休息日</Tag>;
         if (status === 'production') return <Tag color="green">已生产</Tag>;
@@ -470,26 +518,6 @@ const FactoryProduction = () => {
     return rows;
   }, [weekGroups]);
 
-  // 品类汇总表列
-  const categoryColumns: TableColumnsType<any> = [
-    { title: '品类', dataIndex: 'category', width: 180 },
-    { title: '产品数', dataIndex: 'product_count', width: 80 },
-    { title: '排产计划', dataIndex: 'total_planned', width: 100, render: (v) => formatNum(v) },
-    { title: '实际生产', dataIndex: 'total_actual', width: 100, render: (v) => formatNum(v) },
-    {
-      title: '完成率',
-      dataIndex: 'completion_rate',
-      width: 120,
-      render: (v) => (
-        <Space>
-          <Progress percent={Math.min(v, 100)} size="small" strokeColor={rateColor(v)} style={{ width: 60 }} showInfo={false} />
-          <Text>{formatRate(v)}</Text>
-        </Space>
-      ),
-    },
-    { title: '日产能', dataIndex: 'total_capacity', width: 80, render: (v) => formatNum(v) },
-  ];
-
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {/* 页面标题 */}
@@ -518,29 +546,29 @@ const FactoryProduction = () => {
         </Card>
       ) : (
         <>
-          {/* 汇总卡片 */}
+          {/* 汇总卡片（7个，与原项目一致） */}
           <Row gutter={[16, 16]}>
-            <Col xs={12} md={6} lg={3}>
+            <Col xs={12} md={8} lg={4}>
               <Card>
-                <Statistic title="产品总数" value={data.summary.total_products} />
+                <Statistic title="产品总数" value={summary.total_products} />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  覆盖 {data.summary.total_categories} 个品类
+                  覆盖 {formatNum(summary.total_categories)} 个品类
                 </Text>
               </Card>
             </Col>
-            <Col xs={12} md={6} lg={3}>
+            <Col xs={12} md={8} lg={4}>
               <Card>
-                <Statistic title="总排产计划" value={data.summary.total_planned} suffix="件" />
+                <Statistic title="总排产计划" value={summary.total_planned} suffix="件" />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  有排产计划 {data.summary.products_with_plan} 个产品
+                  有排产计划 {summary.products_with_plan} 个产品
                 </Text>
               </Card>
             </Col>
-            <Col xs={12} md={6} lg={3}>
+            <Col xs={12} md={8} lg={4}>
               <Card>
                 <Statistic
                   title="总实际生产"
-                  value={data.summary.total_actual}
+                  value={summary.total_actual}
                   suffix="件"
                   valueStyle={{ color: '#52c41a' }}
                 />
@@ -549,15 +577,15 @@ const FactoryProduction = () => {
                 </Text>
               </Card>
             </Col>
-            <Col xs={12} md={6} lg={3}>
+            <Col xs={12} md={8} lg={4}>
               <Card>
-                <Statistic title="休息日" value={stats.sundays} suffix="天" />
+                <Statistic title="休息日（周日）" value={stats.sundays} suffix="天" />
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   周日不生产
                 </Text>
               </Card>
             </Col>
-            <Col xs={12} md={6} lg={3}>
+            <Col xs={12} md={8} lg={4}>
               <Card>
                 <Statistic title="生产天数" value={stats.productionDays} suffix="天" valueStyle={{ color: '#52c41a' }} />
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -565,7 +593,7 @@ const FactoryProduction = () => {
                 </Text>
               </Card>
             </Col>
-            <Col xs={12} md={6} lg={3}>
+            <Col xs={12} md={8} lg={4}>
               <Card>
                 <Statistic title="实际总产量" value={stats.totalQuantity} suffix="件" />
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -573,7 +601,7 @@ const FactoryProduction = () => {
                 </Text>
               </Card>
             </Col>
-            <Col xs={12} md={6} lg={3}>
+            <Col xs={12} md={8} lg={4}>
               <Card>
                 <Statistic title="平均满产率" value={stats.avgRate} suffix="%" />
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -581,35 +609,14 @@ const FactoryProduction = () => {
                 </Text>
               </Card>
             </Col>
-            <Col xs={12} md={6} lg={3}>
-              <Card>
-                <Statistic title="完成率" value={Number(overallRate.toFixed(1))} suffix="%" valueStyle={{ color: '#4b3fe3' }} />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  实际/计划
-                </Text>
-              </Card>
-            </Col>
           </Row>
-
-          {/* 品类汇总表 */}
-          <Card title="品类排产汇总">
-            <Table
-              rowKey="category"
-              columns={categoryColumns}
-              dataSource={data.category_summary}
-              loading={loading}
-              pagination={false}
-              size="middle"
-              scroll={{ x: 660 }}
-            />
-          </Card>
 
           {/* 筛选区 */}
           <Card>
             <Row justify="space-between" align="middle">
               <Col>
                 <Space>
-                  <Text type="secondary">月份：</Text>
+                  <Text type="secondary" style={{ fontSize: 13 }}>月份：</Text>
                   <Button
                     size="small"
                     type={selectedMonth === '全部' ? 'primary' : 'default'}
@@ -631,7 +638,7 @@ const FactoryProduction = () => {
               </Col>
               <Col>
                 <Space>
-                  <Text type="secondary">显示无生产日：</Text>
+                  <Text type="secondary" style={{ fontSize: 13 }}>显示无生产日：</Text>
                   <Button
                     size="small"
                     type={showIdle ? 'primary' : 'default'}
@@ -644,11 +651,11 @@ const FactoryProduction = () => {
             </Row>
           </Card>
 
-          {/* 排产计划与实际生产表 */}
+          {/* 排产计划与实际生产表（9列，与原项目完全一致） */}
           <Card
             title="排产计划与实际生产"
             extra={
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
                 按周查看排产计划与满产率，共 {weeklyPlan.length} 周
               </Text>
             }
@@ -660,19 +667,40 @@ const FactoryProduction = () => {
               loading={loading}
               pagination={false}
               size="middle"
-              scroll={{ x: 800 }}
+              scroll={{ x: 900 }}
               rowClassName={(record) => (record.isWeekRow ? 'week-row' : '')}
             />
-            <div style={{ padding: '8px 16px', fontSize: 12, color: '#9ca3af', marginTop: 8 }}>
-              说明：周满产率 = &sum;(各型号排产数量 &divide; 该型号日产能) &divide; 当周工作天数 &times; 100%，反映该周排产计划对工作日产能的占用比例。
+            <div style={{ padding: '8px 16px', fontSize: 12, color: '#9ca3af', marginTop: 8, background: '#fafafa', borderTop: '1px solid #f0f0f0' }}>
+              说明：生产满足率 = &sum;(各型号排产数量 &divide; 该型号日产能) &divide; 当周工作天数 &times; 100%，反映该周排产计划对工作日产能的占用比例；排产满足率 = 实际生产数量 &divide; 排产数量 &times; 100%。实际生产数据待接入。
             </div>
+          </Card>
+
+          {/* 图例 */}
+          <Card size="small">
+            <Space size={24} wrap>
+              <Space size={6}>
+                <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: '#fffbeb', border: '1px solid #e8e8e8' }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>休息日（周日）</Text>
+              </Space>
+              <Space size={6}>
+                <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: '#f0fdf4', border: '1px solid #e8e8e8' }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>有生产</Text>
+              </Space>
+              <Space size={6}>
+                <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, background: '#f9fafb', border: '1px solid #e8e8e8' }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>无生产</Text>
+              </Space>
+              <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
+                参与生产型号：{producedModels.length > 0 ? producedModels.join('、') : '暂无'}
+              </Text>
+            </Space>
           </Card>
 
           {/* 每日实际生产明细表 */}
           <Card
             title="每日实际生产明细"
             extra={
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
                 满产率 = &sum;(各型号实际产量 &divide; 该型号日产能) &times; 100%
               </Text>
             }
@@ -684,7 +712,7 @@ const FactoryProduction = () => {
               loading={loading}
               pagination={false}
               size="middle"
-              scroll={{ x: 700, y: 600 }}
+              scroll={{ x: 700, y: 700 }}
               rowClassName={(record) => {
                 if (record.isGroupHeader) return 'group-header-row';
                 if (record.is_sunday) return 'rest-day-row';
