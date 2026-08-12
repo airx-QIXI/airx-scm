@@ -23,8 +23,8 @@
       "sync_script": "sync_to_website.py",
       "api_endpoint": "/api/integrations/production-restock/sync",
       "status": "active",
-      "last_synced": "",
-      "notes": "从飞书读取京东库存数据，同步到网站排产补货预测看板"
+      "last_synced": "2026-08-12T05:51:15Z",
+      "notes": "从飞书读取京东库存数据，同步到网站排产补货预测看板。scheduled_update.py步骤4.5自动触发同步"
     }
   ]
 }
