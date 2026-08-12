@@ -1,0 +1,30 @@
+{
+  "projects": [
+    {
+      "id": "factory-production",
+      "display_name": "工厂排产跟进",
+      "aliases": [],
+      "hash_dir": "6a717be5ded033ac5a159e55",
+      "project_folder": "工厂排产跟进",
+      "full_path": "F:\\TRAE SOLO CN\\6a717be5ded033ac5a159e55\\工厂排产跟进",
+      "sync_script": "scripts/fetch_data.py",
+      "api_endpoint": "/api/integrations/factory-production/sync",
+      "status": "active",
+      "last_synced": "2026-08-12T05:10:15Z",
+      "notes": "每天10:00自动同步排产数据"
+    },
+    {
+      "id": "production-restock",
+      "display_name": "排产补货预测",
+      "aliases": ["京东自营补货提醒", "京东自营补货提醒系统"],
+      "hash_dir": "6a6971d3ef7f9cdce71976a8",
+      "project_folder": "京东自营补货提醒",
+      "full_path": "F:\\TRAE SOLO CN\\6a6971d3ef7f9cdce71976a8\\京东自营补货提醒",
+      "sync_script": "sync_to_website.py",
+      "api_endpoint": "/api/integrations/production-restock/sync",
+      "status": "active",
+      "last_synced": "",
+      "notes": "从飞书读取京东库存数据，同步到网站排产补货预测看板"
+    }
+  ]
+}

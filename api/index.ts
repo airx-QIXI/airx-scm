@@ -599,7 +599,191 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (route === 'integrations/production-restock/sync') {
       if (method !== 'POST') return sendError(res, '仅支持 POST 请求', 405);
-      return sendError(res, '云端部署不支持本地文件同步，请通过数据导入接口或数据库直接写入数据', 400);
+
+      const { products, cacheTime } = req.body || {};
+      if (!products || !Array.isArray(products) || products.length === 0) {
+        return sendError(res, '请提供产品数据 (products 数组)', 400);
+      }
+
+      const sourceTime = cacheTime ? new Date(cacheTime) : new Date();
+      let syncedCount = 0;
+      const errors: string[] = [];
+
+      function num(v: unknown): number {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      }
+      function round(v: number, d: number): number {
+        const b = 10 ** d;
+        return Math.round(v * b) / b;
+      }
+
+      for (const product of products) {
+        try {
+          const national = product['全国数据'] || {};
+          const sku = String(product['SKU'] || '').trim();
+          const code = String(product['编码'] || '').trim();
+          const name = String(product['商品名称'] || '').trim();
+
+          if (!sku && !code) {
+            errors.push(`产品无SKU和编码，跳过`);
+            continue;
+          }
+
+          const availableStock = num(national['全国可用库存']);
+          const factoryStock = num(national['全国厂直可用库存']);
+          const inTransitStock = num(national['全国采购未到货']);
+          const sales7Days = num(national['全国近7日出库商品件数']);
+          const sales30Days = num(national['全国近30日出库商品件数']);
+          const totalStock = availableStock + inTransitStock;
+          const avgDailySales = round(sales30Days / 30, 1);
+          const turnoverDays = avgDailySales > 0 ? round(totalStock / avgDailySales, 1) : null;
+          const turnoverRate30Days = totalStock > 0 ? round(sales30Days / totalStock * 100, 1) : 0;
+
+          // 风险等级判定
+          let riskLevel = 'NORMAL';
+          if (availableStock <= 0 && sales7Days > 0) {
+            riskLevel = 'OUT_OF_STOCK';
+          } else if (turnoverDays !== null && turnoverDays <= 7) {
+            riskLevel = 'CRITICAL';
+          } else if (turnoverDays !== null && turnoverDays <= 14) {
+            riskLevel = 'HIGH';
+          } else if (turnoverDays !== null && turnoverDays > 60) {
+            riskLevel = 'OVERSTOCK';
+          } else if (sales30Days <= 0) {
+            riskLevel = 'NONE';
+          }
+
+          // 建议补货量（基于30天销售和当前库存）
+          const recommendedRestock = avgDailySales > 0
+            ? Math.max(0, Math.round(avgDailySales * 45 - totalStock))
+            : 0;
+
+          // 从商品名称提取型号
+          const modelMatch = name.match(/([A-Z]\d[\w-]*)/);
+          const modelName = modelMatch ? modelMatch[1] : null;
+
+          // 仓库明细
+          const warehouseData = product['仓库数据'] || {};
+
+          const inventoryTurnover = JSON.stringify({
+            model: modelName || name.substring(0, 20),
+            metrics: {
+              availableStock,
+              inTransitStock,
+              totalStock,
+              turnoverDays,
+              turnoverRate30Days,
+              riskLevel,
+            },
+            warehouses: Object.entries(warehouseData).map(([wh, data]: [string, any]) => ({
+              warehouse: wh,
+              stock: num(data['可用库存']),
+              inTransit: num(data['采购未到货']),
+              sales7d: num(data['近7日出库商品件数']),
+              sales30d: num(data['近30日出库商品件数']),
+            })),
+          });
+
+          const inventoryAnalysis = JSON.stringify({
+            model: modelName || name.substring(0, 20),
+            sales: {
+              sales7Days,
+              sales30Days,
+              avgDailySales,
+              trend: sales7Days > (sales30Days / 30 * 7) ? '上升' : '下降',
+            },
+            stock: {
+              available: availableStock,
+              inTransit: inTransitStock,
+              factory: factoryStock,
+              total: totalStock,
+              coverage: avgDailySales > 0 ? round(totalStock / avgDailySales, 0) : null,
+            },
+            riskLevel,
+            riskText: {
+              OUT_OF_STOCK: '已缺货',
+              CRITICAL: '高缺货风险',
+              HIGH: '中缺货风险',
+              NORMAL: '正常',
+              OVERSTOCK: '高库存',
+              NONE: '无动销',
+            }[riskLevel] || '数据缺失',
+          });
+
+          const restockReminder = JSON.stringify({
+            model: modelName || name.substring(0, 20),
+            sku,
+            riskLevel,
+            recommendedRestock,
+            urgency: riskLevel === 'OUT_OF_STOCK' ? '紧急' :
+                     riskLevel === 'CRITICAL' ? '高' :
+                     riskLevel === 'HIGH' ? '中' : '低',
+            reason: riskLevel === 'OUT_OF_STOCK' ? '已缺货，需立即补货' :
+                    riskLevel === 'CRITICAL' ? `库存仅剩${turnoverDays}天，需尽快补货` :
+                    riskLevel === 'HIGH' ? `库存剩${turnoverDays}天，建议补货` :
+                    riskLevel === 'OVERSTOCK' ? '库存充足，暂不需要补货' :
+                    riskLevel === 'NONE' ? '无动销，暂不需要补货' :
+                    '库存正常',
+          });
+
+          // 创建或更新项目
+          const externalId = sku || code;
+          const project = await prisma.integrationProject.upsert({
+            where: { sku: sku || `code-${code}` },
+            update: {
+              code: code || null,
+              name,
+              modelName,
+              source: 'jd_self_operated',
+              rawData: JSON.stringify(product),
+              updatedAt: new Date(),
+            },
+            create: {
+              externalId,
+              code: code || null,
+              sku: sku || `code-${code}`,
+              name,
+              modelName,
+              source: 'jd_self_operated',
+              rawData: JSON.stringify(product),
+            },
+          });
+
+          // 创建快照
+          await prisma.productionRestockSnapshot.create({
+            data: {
+              projectId: project.id,
+              sourceCacheTime: sourceTime,
+              availableStock,
+              factoryStock,
+              inTransitStock,
+              sales7Days,
+              sales30Days,
+              avgDailySales,
+              turnoverDays,
+              turnoverRate30Days,
+              recommendedRestock,
+              riskLevel,
+              inventoryTurnover,
+              inventoryAnalysis,
+              restockReminder,
+              rawData: JSON.stringify(product),
+            },
+          });
+
+          syncedCount++;
+        } catch (err: any) {
+          errors.push(`产品 ${product['SKU'] || product['编码'] || '?'}: ${err.message}`);
+        }
+      }
+
+      return sendSuccess(res, {
+        synced: syncedCount,
+        total: products.length,
+        errors: errors.length > 0 ? errors : undefined,
+        syncedAt: new Date().toISOString(),
+      }, 201);
     }
 
     // ========== 404 ==========
