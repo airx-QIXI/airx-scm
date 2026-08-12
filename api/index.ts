@@ -506,85 +506,140 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!values.length) return null;
         return round(sum(values) / values.length, 1);
       }
-      function priorityWeight(priority: string): number {
-        return { P0: 0, P1: 1, P2: 2, P3: 3, WATCH: 4, NONE: 5 }[priority] ?? 9;
-      }
 
+      const riskLevelMap: Record<string, string> = {
+        OUT_OF_STOCK: '已缺货',
+        CRITICAL: '高缺货风险',
+        HIGH: '中缺货风险',
+        NORMAL: '正常',
+        OVERSTOCK: '高库存',
+        NONE: '无动销',
+      };
+
+      const urgencyWeight: Record<string, number> = {
+        '紧急': 0, '高': 1, '中': 2, '低': 3,
+      };
+
+      // 直接使用 snapshot 数值字段构建看板数据
       const latest = projects
         .filter((project) => project.snapshots[0])
         .map((project) => {
-          const snapshot = project.snapshots[0];
+          const s = project.snapshots[0];
+          const availableStock = num(s.availableStock);
+          const inTransitStock = num(s.inTransitStock);
+          const factoryStock = num(s.factoryStock);
+          const sales7Days = num(s.sales7Days);
+          const sales30Days = num(s.sales30Days);
+          const avgDailySales = num(s.avgDailySales);
+          const turnoverDays = s.turnoverDays;
+          const turnoverRate30Days = num(s.turnoverRate30Days);
+          const recommendedRestock = num(s.recommendedRestock);
+          const riskLevel = s.riskLevel || 'NORMAL';
+          const riskText = riskLevelMap[riskLevel] || '数据缺失';
+
+          // 解析仓库明细（如果存在）
+          let warehouses: any[] = [];
+          try {
+            const turnover = JSON.parse(s.inventoryTurnover || '{}');
+            warehouses = turnover.warehouses || [];
+          } catch { /* ignore */ }
+
           return {
-            project,
-            snapshot,
-            turnover: JSON.parse(snapshot.inventoryTurnover),
-            analysis: JSON.parse(snapshot.inventoryAnalysis),
-            reminder: JSON.parse(snapshot.restockReminder),
+            id: project.id,
+            model: project.modelName || project.name.substring(0, 20),
+            sku: project.sku,
+            name: project.name,
+            riskLevel,
+            riskText,
+            availableStock,
+            inTransitStock,
+            factoryStock,
+            totalStock: availableStock + inTransitStock,
+            sales7Days,
+            sales30Days,
+            avgDailySales,
+            turnoverDays,
+            turnoverRate30Days,
+            recommendedRestock,
+            urgency: riskLevel === 'OUT_OF_STOCK' ? '紧急' :
+                     riskLevel === 'CRITICAL' ? '高' :
+                     riskLevel === 'HIGH' ? '中' : '低',
+            warehouses,
+            syncedAt: s.syncedAt,
           };
         });
 
-      const turnoverProjects = latest.map((item) => item.turnover);
+      // === 库存周转看板 ===
       const avgTurnoverDays = average(
-        turnoverProjects.map((item) => item.metrics.turnoverDays).filter((v) => v !== null),
+        latest.map((item) => item.turnoverDays).filter((v) => v !== null) as number[],
       );
       const inventoryTurnover = {
         title: '库存周转',
         summary: {
-          projectCount: turnoverProjects.length,
+          projectCount: latest.length,
           avgTurnoverDays,
-          fastRiskCount: turnoverProjects.filter((item) =>
-            ['OUT_OF_STOCK', 'CRITICAL', 'HIGH'].includes(item.metrics.riskLevel),
+          fastRiskCount: latest.filter((item) =>
+            ['OUT_OF_STOCK', 'CRITICAL', 'HIGH'].includes(item.riskLevel),
           ).length,
-          overstockCount: turnoverProjects.filter(
-            (item) => item.metrics.riskLevel === 'OVERSTOCK',
-          ).length,
+          outOfStockCount: latest.filter((item) => item.riskLevel === 'OUT_OF_STOCK').length,
+          overstockCount: latest.filter((item) => item.riskLevel === 'OVERSTOCK').length,
         },
-        projects: turnoverProjects.sort(
-          (a, b) => (a.metrics.turnoverDays ?? 99999) - (b.metrics.turnoverDays ?? 99999),
+        projects: [...latest].sort(
+          (a, b) => (a.turnoverDays ?? 99999) - (b.turnoverDays ?? 99999),
         ),
       };
 
-      const analysisProjects = latest.map((item) => item.analysis);
+      // === 库存分析看板 ===
       const warehouseMap = new Map<string, any>();
-      for (const project of analysisProjects) {
-        for (const warehouse of project.warehouses) {
-          const current = warehouseMap.get(warehouse.name) || {
-            name: warehouse.name,
+      for (const item of latest) {
+        for (const wh of item.warehouses) {
+          const whName = wh.warehouse || '未知仓库';
+          const current = warehouseMap.get(whName) || {
+            name: whName,
             availableStock: 0,
             inTransitStock: 0,
+            sales7Days: 0,
             sales30Days: 0,
             projectCount: 0,
           };
-          current.availableStock += warehouse.availableStock;
-          current.inTransitStock += warehouse.inTransitStock;
-          current.sales30Days += warehouse.sales30Days;
+          current.availableStock += num(wh.stock);
+          current.inTransitStock += num(wh.inTransit);
+          current.sales7Days += num(wh.sales7d);
+          current.sales30Days += num(wh.sales30d);
           current.projectCount += 1;
-          warehouseMap.set(warehouse.name, current);
+          warehouseMap.set(whName, current);
         }
       }
       const inventoryAnalysis = {
         title: '库存分析',
         summary: {
-          projectCount: analysisProjects.length,
-          availableStock: sum(analysisProjects.map((item) => item.summary.availableStock)),
-          inTransitStock: sum(analysisProjects.map((item) => item.summary.inTransitStock)),
-          sales30Days: sum(analysisProjects.map((item) => item.summary.sales30Days)),
+          projectCount: latest.length,
+          availableStock: sum(latest.map((item) => item.availableStock)),
+          inTransitStock: sum(latest.map((item) => item.inTransitStock)),
+          factoryStock: sum(latest.map((item) => item.factoryStock)),
+          sales7Days: sum(latest.map((item) => item.sales7Days)),
+          sales30Days: sum(latest.map((item) => item.sales30Days)),
         },
         warehouses: Array.from(warehouseMap.values()).sort(
           (a, b) => b.availableStock - a.availableStock,
         ),
-        projects: analysisProjects,
+        riskDistribution: Object.entries(
+          latest.reduce<Record<string, number>>((acc, item) => {
+            acc[item.riskText] = (acc[item.riskText] || 0) + 1;
+            return acc;
+          }, {}),
+        ).map(([name, value]) => ({ name, value })),
       };
 
+      // === 补货提醒看板 ===
       const reminders = latest
-        .map((item) => item.reminder)
-        .filter((item) => item.priority !== 'NONE')
-        .sort((a, b) => priorityWeight(a.priority) - priorityWeight(b.priority));
+        .filter((item) => item.riskLevel !== 'NORMAL' && item.riskLevel !== 'NONE' && item.riskLevel !== 'OVERSTOCK')
+        .sort((a, b) => (urgencyWeight[a.urgency] ?? 9) - (urgencyWeight[b.urgency] ?? 9));
       const restockReminder = {
         title: '补货提醒',
         summary: {
           reminderCount: reminders.length,
-          urgentCount: reminders.filter((item) => ['P0', 'P1'].includes(item.priority)).length,
+          urgentCount: reminders.filter((item) => ['紧急', '高'].includes(item.urgency)).length,
           recommendedRestockTotal: sum(reminders.map((item) => item.recommendedRestock)),
         },
         reminders,
@@ -592,6 +647,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       return sendSuccess(res, {
         generatedAt: new Date(),
+        source: 'TiDB Cloud 数据库',
         projectCount: latest.length,
         dashboards: { inventoryTurnover, inventoryAnalysis, restockReminder },
       });
